@@ -1,181 +1,252 @@
 # Pearl Mining on Modal.com via Cloudflare Tunnel
 
-**⚠️ HIGH RISK**: Mining cryptocurrency on cloud providers typically violates Terms of Service. Use at your own risk.
+**⚠️ HIGH RISK**: Mining cryptocurrency on cloud providers typically violates Terms of Service. Use at your own risk. This is for educational purposes only.
 
-## Architecture
+[![GitHub](https://img.shields.io/badge/GitHub-pearl--modal--mining-blue?logo=github)](https://github.com/Jivscko/pearl-modal-mining)
+[![Modal](https://img.shields.io/badge/Modal-GPU%20Mining-orange)](https://modal.com)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-```
-Modal GPU Container → Cloudflare Tunnel → Pearl Mining Pool (84.32.220.219:9000)
-```
-
-**Why Cloudflare Tunnel:**
-- Masks Modal IP from mining pool
-- Masks pool IP from Modal (reduces detection)
-- Low latency (<50ms overhead)
-- Free tier sufficient for mining traffic
-
-## Setup
-
-### 1. Cloudflare Tunnel Setup (Local/VPS)
+## 🎯 Quick Start (10 Minutes)
 
 ```bash
-# Install cloudflared
+git clone https://github.com/Jivscko/pearl-modal-mining.git
+cd pearl-modal-mining
+
+# 1. Setup Cloudflare Tunnel (one-time)
+bash cloudflare-tunnel-setup.sh
+
+# 2. Install Modal
+pip install modal
+modal token new
+
+# 3. Configure wallet
+modal secret create pearl-wallet PEARL_WALLET=prl1your-wallet-here
+
+# 4. Update tunnel hostname in modal_pearl.py (line 14)
+# TUNNEL_HOST = "your-tunnel-id.cfargotunnel.com"
+
+# 5. Deploy & run
+modal deploy modal_pearl.py
+modal run modal_pearl.py::mine_short  # 1-hour test on T4 ($0.60)
+```
+
+📖 **Detailed guide**: [QUICKSTART.md](QUICKSTART.md)
+
+## 🏗️ Architecture
+
+```
+Modal GPU Container → Cloudflare Tunnel → Pearl Pool (84.32.220.219:9000)
+```
+
+**Why Cloudflare Tunnel?**
+- Masks Modal IP from mining pool
+- Masks pool IP from Modal detection systems
+- Free tier, low latency (<50ms)
+- Easy setup with automated script
+
+## 📋 Requirements
+
+### 1. Cloudflare Account (Free)
+- Sign up at https://dash.cloudflare.com
+- No domain needed (free `*.cfargotunnel.com` hostname)
+- Takes 2 minutes to register
+
+### 2. Cloudflared Binary (Local/VPS)
+
+Install on Linux/WSL:
+```bash
 wget https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
 chmod +x cloudflared-linux-amd64
 sudo mv cloudflared-linux-amd64 /usr/local/bin/cloudflared
+```
 
-# Login to Cloudflare
+macOS:
+```bash
+brew install cloudflared
+```
+
+Windows:
+```powershell
+# Download from https://github.com/cloudflare/cloudflared/releases
+# Or use WSL with Linux instructions above
+```
+
+### 3. Setup Tunnel (5 Minutes)
+
+**Automated (recommended):**
+```bash
+cd pearl-modal-mining
+bash cloudflare-tunnel-setup.sh
+```
+
+**Manual:**
+```bash
+# Login to Cloudflare (opens browser)
 cloudflared tunnel login
 
 # Create tunnel
 cloudflared tunnel create pearl-mining
 
-# Note the Tunnel ID and credentials file path
-# Credentials saved to: ~/.cloudflared/<TUNNEL-ID>.json
+# Output shows Tunnel ID, example:
+# Created tunnel pearl-mining with id abc123...
+# Credentials written to: ~/.cloudflared/abc123.json
+# Tunnel hostname: abc123.cfargotunnel.com
 ```
 
-### 2. Configure Tunnel
+### 4. Run Tunnel (Keep Alive)
 
-Create `~/.cloudflared/config.yml`:
-
-```yaml
-tunnel: <YOUR-TUNNEL-ID>
-credentials-file: /home/user/.cloudflared/<TUNNEL-ID>.json
-
-ingress:
-  - hostname: pearl.yourdomain.com  # Optional: use a domain
-    service: tcp://84.32.220.219:9000
-    originRequest:
-      noTLSVerify: true
-      connectTimeout: 30s
-      tcpKeepAlive: 30s
-  - service: http_status:404  # Catch-all rule
+**Foreground (testing):**
+```bash
+cloudflared tunnel --url tcp://84.32.220.219:9000
+# Output: https://xxxx.trycloudflare.com (temporary)
 ```
 
-**Or for quick start without domain:**
-
-```yaml
-tunnel: <YOUR-TUNNEL-ID>
-credentials-file: /home/user/.cloudflared/<TUNNEL-ID>.json
+**Background (persistent):**
+```bash
+# Create config
+cat > ~/.cloudflared/config.yml << EOF
+tunnel: abc123  # Your tunnel ID
+credentials-file: /home/user/.cloudflared/abc123.json
 
 ingress:
   - service: tcp://84.32.220.219:9000
-```
+EOF
 
-### 3. Run Tunnel (Persistent)
-
-```bash
-# Test first
+# Run tunnel
 cloudflared tunnel run pearl-mining
 
-# Run as systemd service (recommended)
+# Or install as systemd service (auto-start on boot)
 sudo cloudflared service install
 sudo systemctl start cloudflared
 sudo systemctl enable cloudflared
-
-# Check status
-sudo systemctl status cloudflared
 ```
 
-**Get your tunnel endpoint:**
-```bash
-cloudflared tunnel info pearl-mining
-# Note the public hostname: <tunnel-id>.cfargotunnel.com
-```
+### 5. Update Modal Config
 
-### 4. Modal Setup
-
-```bash
-# Install Modal
-pip install modal
-
-# Authenticate
-modal token new
-
-# Set your wallet as secret
-modal secret create pearl-wallet PEARL_WALLET=prl1your-wallet-address-here
-
-# Deploy
-modal deploy modal_pearl.py
-```
-
-### 5. Run Mining
-
-**Option A: Serverless Function (auto-scale)**
-```bash
-modal run modal_pearl.py
-```
-
-**Option B: Notebook (interactive)**
-- Open https://modal.com/notebooks
-- Upload `notebook_pearl.ipynb`
-- Select GPU (T4 for testing, H100/H200 for performance)
-- Run cells
-
-## Configuration
-
-Edit `modal_pearl.py`:
-
+Edit `modal_pearl.py` line 14:
 ```python
-TUNNEL_HOST = "<tunnel-id>.cfargotunnel.com"  # From step 3
-TUNNEL_PORT = "9000"  # Default Cloudflare tunnel port
-PEARL_WALLET = "prl1your-wallet-here"  # Or use modal secret
-WORKER_NAME = "modal-miner-1"  # Unique worker ID
+TUNNEL_HOST = "abc123.cfargotunnel.com"  # Replace with your tunnel ID
 ```
 
-## Cost Estimation
+### 6. Verify Tunnel
 
-**Modal GPU Pricing (approximate):**
-- T4: $0.60/hr
-- L4: $0.80/hr
-- A100-40GB: $3.00/hr
-- H100: $4.50/hr
-- H200: $5.50/hr
+Before mining, check tunnel is active:
+```bash
+# Terminal 1: Run tunnel
+cloudflared tunnel run pearl-mining
 
-**Profitability depends on:**
-- PRL token price
-- Network difficulty
-- Epoch rewards
-- GPU hashrate
+# Terminal 2: Test connection
+nc -zv abc123.cfargotunnel.com 9000
+# Or
+curl -v telnet://abc123.cfargotunnel.com:9000
+```
 
-⚠️ **Test with T4 first (cheapest) to verify profitability before scaling to expensive GPUs.**
+If successful, you'll see "Connected" or similar output.
 
-## Monitoring
+### 7. Where to Run Tunnel?
+
+**Option A: Local Machine (Laptop/Desktop)**
+- **Pros**: Free, full control
+- **Cons**: Must stay online during mining
+- **Best for**: Testing, short mining sessions
+
+**Option B: Cheap VPS ($3-5/mo)**
+- **Pros**: 24/7 uptime, reliable
+- **Cons**: Additional cost
+- **Providers**: Hetzner, DigitalOcean, Vultr, Linode
+- **Best for**: Production mining
+
+**Option C: Free Tier VPS**
+- **Oracle Cloud (Always Free)**: 2 VMs free forever (ARM/x86)
+- **Google Cloud (Free Tier)**: $300 credit for 90 days
+- **Best for**: Testing without local machine dependency
+
+## 💰 Cost & Profitability
+
+| GPU | Modal Cost/hr | Hashrate | Break-even PRL/hr* |
+|-----|---------------|----------|-------------------|
+| T4 | $0.60 | Low | 0.6 PRL |
+| L4 | $0.80 | Medium | 0.8 PRL |
+| A100 | $3.00 | High | 3.0 PRL |
+| H100 | $4.50 | Very High | 4.5 PRL |
+| H200 | $5.50 | Maximum | 5.5 PRL |
+
+*Assuming PRL = $1. Check current price before mining.
+
+⚠️ **Test profitability first**: Run 1-hour test on T4, calculate ROI, then scale.
+
+## 📁 Files
+
+- **modal_pearl.py** - Modal serverless function (2-hour burst mining)
+- **notebook_pearl.ipynb** - Jupyter notebook for interactive mining
+- **cloudflare-tunnel-setup.sh** - Automated tunnel setup
+- **QUICKSTART.md** - Step-by-step setup guide
+- **.env.example** - Configuration template
+
+## 🎓 Features
+
+- ✅ Multiple GPU support (T4, L4, A100, H100, H200)
+- ✅ Cloudflare Tunnel for IP masking
+- ✅ Burst mining pattern (2-hour sessions, auto-stop)
+- ✅ Modal Notebooks support (interactive)
+- ✅ Automated setup scripts
+- ✅ Worker name rotation (timestamp-based)
+- ✅ Cost optimization guides
+
+## 📊 Monitoring
 
 ```bash
 # Check Modal logs
-modal logs <app-name>
+modal logs pearl-miner
 
-# Check tunnel traffic
+# Verify tunnel status
 cloudflared tunnel info pearl-mining
 
-# Verify earnings
-# Visit: https://pearlhash.xyz/?lookup=YOUR_WALLET
+# Check earnings
+# https://pearlhash.xyz/?lookup=YOUR_WALLET
 ```
 
-## Risk Mitigation
+## ⚠️ Risks & Disclaimers
 
-1. **Don't run 24/7** - Burst mining pattern (2-4 hrs/session)
-2. **Rotate worker names** - Use timestamp in worker ID
-3. **Monitor costs** - Set billing alerts in Modal dashboard
-4. **Test profitability** - Run 1 hour on T4, calculate ROI
-5. **Have backup plan** - Export wallet, save credentials
+1. **Terms of Service Violation**: Cloud mining typically violates Modal.com ToS
+2. **Account Ban**: Modal may ban your account if detected
+3. **Profitability**: GPU costs may exceed mining rewards
+4. **No Guarantees**: Educational project, use at your own risk
 
-## Safer Alternatives
+## 🛡️ Risk Mitigation
 
-- **RunPod**: Mining-friendly, $0.30-0.80/hr for RTX 4090
-- **Vast.ai**: Peer-to-peer GPU rental, cheap but unreliable
+- Don't run 24/7 (use burst pattern: 2-4 hours, then stop)
+- Rotate worker names with timestamps
+- Monitor costs daily (set billing alerts)
+- Test on T4 first before expensive GPUs
+- Have backup plan (export wallet, save credentials)
+
+## 🔄 Safer Alternatives
+
+- **RunPod**: Mining-friendly, $0.30-0.80/hr
+- **Vast.ai**: Peer-to-peer GPU rental, cheaper
 - **Akash Network**: Decentralized, crypto-native
-- **Hetzner dedicated**: €60-150/mo for dedicated GPU servers
+- **Hetzner**: Dedicated GPU servers, €60-150/mo
 
-## Files
+## 🤝 Contributing
 
-- `modal_pearl.py` - Modal serverless function
-- `notebook_pearl.ipynb` - Jupyter notebook for interactive mining
-- `Dockerfile` - Container image (nvidia/cuda base)
-- `mine.sh` - Mining startup script
-- `.env.example` - Environment variables template
+See [CONTRIBUTING.md](CONTRIBUTING.md) for improvement ideas:
+- Profitability dashboard
+- Auto-rotation & scheduling
+- Telegram/Discord alerts
+- Alternative cloud providers
 
-## License
+## 📄 License
 
-MIT - Use at your own risk. Mining crypto on cloud providers may violate ToS.
+MIT - See [LICENSE](LICENSE)
+
+**DISCLAIMER**: Mining cryptocurrency on cloud computing platforms may violate their Terms of Service. Users assume all risks and responsibilities for compliance with applicable terms and laws. This software is provided for educational purposes only.
+
+---
+
+🔗 **Links**
+- Pearl Dashboard: https://pearlhash.xyz
+- Modal Dashboard: https://modal.com/apps
+- Cloudflare Tunnel Docs: https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/
+
+**Support**: Open an issue or PR if you find bugs or have improvements.
