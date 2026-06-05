@@ -1,0 +1,38 @@
+# Environment
+.env
+*.local
+
+# Cloudflare
+.cloudflared/
+*.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+ENV/
+
+# Modal
+.modal/
+modal_logs/
+
+# Binaries
+pearl-miner
+pearl-miner-*
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
